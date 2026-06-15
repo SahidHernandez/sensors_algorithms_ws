@@ -1,0 +1,29 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>camera_bringup</name>
+  <version>0.1.0</version>
+  <description>Centralized bringup for RealSense, USB webcam, and fisheye cameras.</description>
+  <maintainer email="user@todo.com">thesamayan</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+  <exec_depend>python3-yaml</exec_depend>
+  <exec_depend>realsense2_camera</exec_depend>
+  <exec_depend>rtabmap_launch</exec_depend>
+  <exec_depend>v4l2_camera</exec_depend>
+  <exec_depend>fisheye_camera</exec_depend>
+  <exec_depend>thermal_camera</exec_depend>
+  <exec_depend>yolo_bringup</exec_depend>
+  <exec_depend>yolo_playground</exec_depend>
+
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_lint_common</test_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

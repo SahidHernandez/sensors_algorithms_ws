@@ -1,0 +1,42 @@
+motion_detector_node:
+  ros__parameters:
+
+    # Tópico de entrada de la cámara
+    image_topic: "/camera/color/image_raw"
+
+    # Algoritmos disponibles:
+    # MOG2 = más robusto y equilibrado
+    # KNN  = más sensible, pero puede generar más ruido
+    algorithm: "MOG2"
+
+    # Parámetros del sustractor de fondo
+    history: 300
+    var_threshold: 45.0
+    dist2_threshold: 300.0
+    detect_shadows: false
+
+    # Preprocesamiento
+    blur_kernel: 5
+    threshold_value: 200
+    morph_iterations: 2
+
+    # Filtros de movimiento
+    min_contour_area: 300.0
+
+    # Si el área total de movimiento está por debajo de este valor,
+    # se considera que la imagen está relativamente estable.
+    motion_threshold: 3000.0
+
+    # Número de frames consecutivos estables requeridos
+    stable_frames_required: 5
+
+    # Frames iniciales para que el algoritmo aprenda el fondo
+    warmup_frames: 30
+
+    # Publicaciones extra
+    publish_debug_image: true
+    publish_mask: true
+
+    # Ventanas OpenCV locales.
+    # Déjalo en false si estás en robot/headless.
+    show_window: false

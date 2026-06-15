@@ -1,0 +1,26 @@
+qr_detector_node:
+  ros__parameters:
+
+    image_topic: "/camera/color/image_raw"
+
+    publish_debug_image: true
+    show_window: false
+
+    resize_width: 0
+
+    use_grayscale: true
+    use_equalization: false
+    use_adaptive_threshold: false
+
+    draw_qr_polygon: true
+    draw_qr_text: true
+    print_only_when_changed: true
+
+    min_text_length: 1
+
+    sharpness_threshold: 30.0
+    capture_only_if_qr_detected: true
+    capture_cooldown_frames: 30
+
+    # Importante: true para que la captura tenga cuadro y texto
+    publish_capture_debug: true

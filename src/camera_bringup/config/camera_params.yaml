@@ -1,0 +1,39 @@
+cameras:
+  realsense:
+    camera_name: camera
+    camera_namespace: ""
+    serial_no: "248622301894"
+
+    enable_color: true
+    enable_depth: true
+    align_depth_enable: true
+    pointcloud_enable: false
+
+    color_profile: "640x480x15"
+    depth_profile: "640x480x15"
+
+    enable_sync: false
+    publish_tf: true
+    tf_publish_rate: 0.0
+    initial_reset: false
+    reconnect_timeout: 6.0
+    wait_for_device_timeout: -1.0
+
+  usb_camera:
+    video_device: "/dev/v4l/by-id/usb-UGREEN_UGREEN_camera_2K_AN202402200003-video-index0"
+    image_size: [432, 240]
+    framerate: 15.0
+    pixel_format: "YUYV"
+    output_encoding: "rgb8"
+    camera_frame_id: "usb_camera_link"
+    image_topic: "/usb_camera/image_raw"
+    camera_info_topic: "/usb_camera/camera_info"
+
+  fisheye:
+    video_device: "/dev/v4l/by-id/usb-HD_USB_Camera_HD_USB_Camera-video-index0"
+    framerate: 15.0
+    pixel_format: "YUYV"
+    output_encoding: "rgb8"
+
+  thermal_camera:
+    video_device: "/dev/v4l/by-id/usb-Generic_USB_Camera_200901010001-video-index0"

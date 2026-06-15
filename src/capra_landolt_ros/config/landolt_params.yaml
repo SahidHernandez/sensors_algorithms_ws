@@ -1,0 +1,10 @@
+landolt_node:
+  ros__parameters:
+    camera_topic: /camera/color/image_raw
+
+    threshold_value: 140
+    min_edge: 12
+    min_ratio_circle: 0.8
+    min_depth: 10
+
+    publish_debug_image: true

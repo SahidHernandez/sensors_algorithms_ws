@@ -1,0 +1,10 @@
+v4l2_camera_node:
+  ros__parameters:
+    video_device: "/dev/v4l/by-id/usb-HD_USB_Camera_HD_USB_Camera-video-index0"
+    image_width: 640
+    image_height: 480
+    framerate: 15.0
+    pixel_format: "YUYV"          # revertir — MJPG no soportado en esta versión
+    output_encoding: "rgb8"       # conversión sigue siendo en CPU pero es inevitable
+    camera_frame_id: "fisheye_camera_link"
+    camera_info_url: ""
