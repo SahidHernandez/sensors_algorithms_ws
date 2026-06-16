@@ -163,18 +163,32 @@ sudo sysctl -w net.core.wmem_max=26214400
 Archivo de configuración recomendado (`cyclonedds.xml`):
 
 ```xml
-<CycloneDDS>
-  <Domain>
+<CycloneDDS xmlns="https://cdds.io/config"
+            xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+            xsi:schemaLocation="https://cdds.io/config https://raw.githubusercontent.com/eclipse-cyclonedds/cyclonedds/master/etc/cyclonedds.xsd">
+  <Domain Id="any">
     <General>
       <Interfaces>
-        <NetworkInterface name="eth0" priority="default" multicast="default"/>
-        <NetworkInterface name="wlan0" priority="default" multicast="default"/>
+        <NetworkInterface autodetermine="true" priority="default" multicast="default"/>
       </Interfaces>
+      <AllowMulticast>default</AllowMulticast>
+      <MaxMessageSize>65500B</MaxMessageSize>
     </General>
     <Internal>
-      <MaxMessageSize>65500B</MaxMessageSize>
-      <FragmentSize>4000B</FragmentSize>
+      <SocketReceiveBufferSize min="10MB"/>
+      <Watermarks>
+        <WhcHigh>500kB</WhcHigh>
+      </Watermarks>
     </Internal>
+    <Discovery>
+      <ParticipantIndex>auto</ParticipantIndex>
+      <MaxAutoParticipantIndex>120</MaxAutoParticipantIndex>
+      <Peers>
+        <Peer address="127.0.0.1"/>
+        <Peer address="192.168.100.135"/>
+        <Peer address="192.168.100.64"/>
+      </Peers>
+    </Discovery>
   </Domain>
 </CycloneDDS>
 ```
