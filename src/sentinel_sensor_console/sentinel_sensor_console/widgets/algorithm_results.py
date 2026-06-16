@@ -86,6 +86,9 @@ class AlgorithmResultsWidget(QWidget):
     def _create_card(self, title_text, dialog_to_show):
         """Función auxiliar para crear tarjetas con estilo uniforme"""
         card = QFrame()
+        # 1. Forzamos a que la tarjeta no crezca demasiado a lo alto
+        card.setMaximumHeight(85) 
+        
         card.setStyleSheet("""
             QFrame {
                 background-color: #161B22;
@@ -95,12 +98,14 @@ class AlgorithmResultsWidget(QWidget):
             QLabel { border: none; }
         """)
         layout = QVBoxLayout(card)
-        layout.setContentsMargins(15, 12, 15, 15)
+        # 2. Reducimos los márgenes internos (antes eran 15, 12, 15, 15)
+        layout.setContentsMargins(10, 8, 10, 8)
+        layout.setSpacing(5)
         
         title = QLabel(title_text)
-        title.setStyleSheet("color: #C9D1D9; font-weight: bold; font-size: 13px;")
+        # 3. Hacemos el título de la tarjeta un poco más pequeño (11px)
+        title.setStyleSheet("color: #C9D1D9; font-weight: bold; font-size: 11px;")
         
-        # Contenedor para el valor central
         value_container = QWidget()
         value_layout = QVBoxLayout(value_container)
         value_layout.setContentsMargins(0, 0, 0, 0)
@@ -109,7 +114,7 @@ class AlgorithmResultsWidget(QWidget):
         btn.setStyleSheet("""
             QPushButton {
                 background-color: #21262D; color: #8B949E; 
-                border: 1px solid #363B42; border-radius: 4px; padding: 6px; font-weight: bold; font-size: 11px;
+                border: 1px solid #363B42; border-radius: 4px; padding: 4px; font-weight: bold; font-size: 8px;
             }
             QPushButton:hover { background-color: #30363D; color: white; }
         """)

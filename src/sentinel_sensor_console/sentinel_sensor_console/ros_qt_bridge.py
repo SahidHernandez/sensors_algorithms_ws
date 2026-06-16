@@ -8,6 +8,13 @@ from yolo_msgs.msg import DetectionArray
 
 from PySide6.QtCore import QObject, QThread, Signal
 
+from std_msgs.msg import String, Bool, Float32, Empty
+
+from rclpy.executors import SingleThreadedExecutor, ExternalShutdownException
+from rclpy.context import Context
+
+import rclpy.executors
+
 class RosSignals(QObject):
     new_image = Signal(object, str)
     qr_text_update = Signal(str)
@@ -15,10 +22,11 @@ class RosSignals(QObject):
     motion_status_update = Signal(bool, float)
     yolo_text_update = Signal(str)
     qr_status_update = Signal(str)
+    mag_heading_update = Signal(float)
 
 class SentinelConsoleNode(Node):
-    def __init__(self, signals: RosSignals):
-        super().__init__('sentinel_console_node')
+    def __init__(self, signals: RosSignals, context=None):
+        super().__init__('sentinel_console_node', context = context)
         self.signals = signals
         self.cv_bridge = CvBridge()
 
@@ -52,6 +60,17 @@ class SentinelConsoleNode(Node):
         self.create_subscription(Float32, '/motion_detector/motion_area', self.motion_area_callback, reliable_qos)
         self.create_subscription(DetectionArray, '/yolo/detections_3d', self.yolo_data_callback, reliable_qos) # <-- NUEVO
 
+        self.sub_mag = self.create_subscription(
+            Float32,
+            '/magnetometer/heading', 
+            self.mag_callback,
+            10
+        )
+
+        self.pub_capture_landolt = self.create_publisher(Bool, '/landolt/capture_command', 10)
+        self.pub_enable_debug = self.create_publisher(Bool, '/system/debug_mode', 10)
+        self.pub_restart_cams = self.create_publisher(Empty, '/system/restart_cameras', 10)
+
         # Variables de estado interno para agrupar las señales de motion
         self.current_motion_stable = False
 
@@ -68,6 +87,10 @@ class SentinelConsoleNode(Node):
     def landolt_video_callback(self, msg): self._process_image(msg, "/image")
     def motion_video_callback(self, msg): self._process_image(msg, "/motion_detector/debug_image")
     def yolo_video_callback(self, msg): self._process_image(msg, "/yolo/dbg_image")
+
+    def mag_callback(self, msg):
+        # Transmite los grados a PySide6
+        self.signals.mag_heading_update.emit(msg.data)
 
     def _process_image(self, msg, source_name):
         try:
@@ -123,23 +146,61 @@ class SentinelConsoleNode(Node):
             
             self.signals.yolo_text_update.emit(status_text)
 
+    def execute_command(self, action_name):
+        """Recibe el string de la interfaz y lo traduce a comandos de ROS 2"""
+        self.get_logger().info(f"UI command received: {action_name}")
+        
+        if action_name == "Capture Landolt":
+            msg = Bool()
+            msg.data = True
+            self.pub_capture_landolt.publish(msg)
+            
+        elif action_name == "Enable Debug":
+            msg = Bool()
+            msg.data = True # O haz un toggle (True/False)
+            self.pub_enable_debug.publish(msg)
+            
+        elif action_name == "Restart Cameras":
+            msg = Empty()
+            self.pub_restart_cams.publish(msg)
+            
+        elif action_name == "Clear Captures":
+            # Si esto solo limpia la UI, puedes emitir una señal de vuelta al main.
+            # Si limpia un buffer en ROS, publica a un tópico.
+            pass
 
 
 class RosThread(QThread):
-    def __init__(self, signals: RosSignals):
+    def __init__(self, signals):
         super().__init__()
         self.signals = signals
         self.node = None
+        self.executor = None
+        self.context = None
 
     def run(self):
-        rclpy.init()
-        self.node = SentinelConsoleNode(self.signals)
-        rclpy.spin(self.node)
+        # 1. Create a dedicated context for this thread
+        self.context = Context()
+        rclpy.init(context=self.context)
+
+        # 2. Instantiate the node within this context
+        self.node = SentinelConsoleNode(self.signals, context=self.context)
         
+        # 3. Use a dedicated executor bound to the context
+        self.executor = SingleThreadedExecutor(context=self.context)
+        self.executor.add_node(self.node)
+
+        try:
+            self.executor.spin()
+        except (KeyboardInterrupt, ExternalShutdownException):
+            pass
+        finally:
+            if rclpy.ok(context=self.context):
+                self.executor.remove_node(self.node)
+                self.node.destroy_node()
+                rclpy.shutdown(context=self.context)
+
     def stop(self):
-        if self.node:
-            self.node.destroy_node()
-        if rclpy.ok():
-            rclpy.shutdown()
-        self.quit()
+        if self.executor:
+            self.executor.shutdown()
         self.wait()
