@@ -1,3 +1,12 @@
+"""
+Launch file for the Sentinel camera suite.
+
+This script manages the concurrent initialization of multiple cameras 
+(RealSense, Fisheye, USB, and Thermal) for the Sentinel robot. It parses 
+configurations from a YAML file and uses TimerActions to stagger the 
+startup sequence, preventing USB bus overload.
+"""
+
 from launch import LaunchDescription
 from launch.actions import IncludeLaunchDescription, TimerAction
 from launch.launch_description_sources import PythonLaunchDescriptionSource
@@ -11,6 +20,21 @@ import yaml
 
 
 def load_yaml(package_name, relative_path):
+    """
+    Loads and parses a YAML configuration file from a ROS 2 package.
+
+    Args:
+        package_name (str): The name of the ROS 2 package containing the file.
+        relative_path (list of str): The path components inside the package's 
+            share directory (e.g., ['config', 'params.yaml']).
+
+    Returns:
+        dict: The parsed YAML data as a Python dictionary. Defaults to an 
+            empty dictionary if the file is empty.
+
+    Raises:
+        FileNotFoundError: If the specified YAML file does not exist.
+    """
     config_file = os.path.join(
         get_package_share_directory(package_name),
         *relative_path,
@@ -24,14 +48,45 @@ def load_yaml(package_name, relative_path):
 
 
 def bool_to_launch(value):
+    """
+    Converts a boolean value to a ROS 2 launch-compatible string.
+
+    Args:
+        value (bool): The boolean value to convert.
+
+    Returns:
+        str: 'true' or 'false' in lowercase.
+    """
     return str(bool(value)).lower()
 
 
 def value_to_launch(value):
+    """
+    Converts a generic Python value to a string for ROS 2 arguments.
+
+    Args:
+        value (Any): The value to convert.
+
+    Returns:
+        str: The string representation of the value.
+    """
     return str(value)
 
 
 def serial_to_launch(value):
+    """
+    Formats a camera serial number for the realsense2_camera node.
+
+    The RealSense ROS 2 wrapper requires purely numeric serial numbers 
+    to be prefixed with an underscore ('_') to prevent them from being 
+    parsed as floats/integers by the launch system.
+
+    Args:
+        value (Union[str, int, None]): The raw serial number.
+
+    Returns:
+        str: The formatted serial number string, or "''" if empty.
+    """
     if value is None:
         return "''"
 
@@ -47,6 +102,17 @@ def serial_to_launch(value):
 
 
 def generate_launch_description():
+    """
+    Generates the ROS 2 LaunchDescription for the camera bringup.
+
+    Reads parameters from `camera_params.yaml` and constructs the launch 
+    sequence for the RealSense D455, Fisheye camera, UGREEN USB camera, 
+    and Thermal camera. Timers are used to stagger the node executions 
+    by 4-second intervals.
+
+    Returns:
+        LaunchDescription: The populated launch description object.
+    """
     # =========================
     # Load camera_bringup config
     # =========================

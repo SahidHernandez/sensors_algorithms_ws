@@ -1,3 +1,13 @@
+"""
+Master launch file for the Sentinel sensor and algorithm suite.
+
+This script orchestrates the complete startup sequence for all hardware sensors 
+(RealSense, Fisheye, USB, Thermal) and software processing nodes (Landolt, Motion, 
+QR, YOLO). It uses conditional launch arguments to selectively enable or disable 
+specific modules and employs TimerActions to stagger the node initialization, 
+ensuring system stability and preventing USB bandwidth or CPU overloads during boot.
+"""
+
 from launch import LaunchDescription
 from launch.actions import (
     DeclareLaunchArgument,
@@ -11,6 +21,25 @@ from launch_ros.substitutions import FindPackageShare
 
 
 def generate_launch_description():
+    """
+    Generates the ROS 2 LaunchDescription for the complete Sentinel system.
+
+    This function declares all configuration arguments (toggle flags and 
+    YOLO-specific parameters) and constructs the ordered execution graph. 
+    Nodes are launched in a heavily staggered sequence to allow hardware 
+    interfaces to settle before algorithms attempt to subscribe to them:
+    
+    Sequence:
+        1. Cameras (T=0s)
+        2. Landolt Detector (T=10s)
+        3. Motion Detector (T=12s)
+        4. QR Detector (T=13s)
+        5. YOLO 3D (T=15s)
+
+    Returns:
+        LaunchDescription: The populated launch description object containing 
+            all declared arguments, conditional includes, and timers.
+    """
     # --- Configuraciones de encendido/apagado ---
     use_cameras = LaunchConfiguration('use_cameras')
     use_landolt = LaunchConfiguration('use_landolt')

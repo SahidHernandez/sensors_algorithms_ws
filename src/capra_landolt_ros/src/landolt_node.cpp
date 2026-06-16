@@ -1,3 +1,14 @@
+/**
+ * @file landolt_node.cpp
+ * @brief ROS 2 Node for Landolt C ring detection using OpenCV.
+ *
+ * This node subscribes to an RGB image stream, processes it to find Landolt C 
+ * rings (broken rings) using contour and convexity defect analysis, and 
+ * determines the orientation of the gap. It supports different mapping modes 
+ * for RoboCup tasks (generic, linear, omni) and includes a sharpness filter 
+ * to reject blurry frames. It also provides a manual capture service.
+ */
+
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -20,16 +31,31 @@
 #include "capra_landolt_msgs/msg/bounding_circles.hpp"
 #include "capra_landolt_msgs/msg/point2f.hpp"
 
+/**
+ * @brief Structure to hold multiple Landolt C detection results.
+ * * Stores the orientations (angles), radii, and center coordinates 
+ * for all valid Landolt rings detected in a single frame.
+ */
 struct Gaps
 {
-  std::vector<float> angles;
-  std::vector<float> radius;
-  std::vector<cv::Point2f> centers;
+  std::vector<float> angles;        ///< Gap orientations in degrees [0, 360).
+  std::vector<float> radius;        ///< Radii of the detected rings in pixels.
+  std::vector<cv::Point2f> centers; ///< Center coordinates (x, y) of the rings.
 };
 
+/**
+ * @class LandoltNode
+ * @brief Core ROS 2 node class for Landolt ring detection and publishing.
+ */
 class LandoltNode : public rclcpp::Node
 {
 public:
+  /**
+   * @brief Constructor for LandoltNode.
+   * * Declares ROS 2 parameters, initializes publishers/subscribers, 
+   * creates the manual capture service, and sets up the continuous 
+   * publishing timer.
+   */
   LandoltNode()
   : Node("landolt_node")
   {
@@ -110,6 +136,7 @@ public:
   }
 
 private:
+  // ROS Parameters
   std::string camera_topic_;
   int threshold_value_;
   int min_edge_;
@@ -124,12 +151,14 @@ private:
 
   std::mutex data_mutex_;
 
+  // Latest frame state
   bool has_latest_frame_ = false;
   cv::Mat latest_raw_image_;
   cv::Mat latest_debug_image_;
   std_msgs::msg::Header latest_header_;
   Gaps latest_gaps_;
 
+  // Stored (captured) detection state
   bool has_stored_detection_ = false;
   cv::Mat stored_crop_image_;
   cv::Mat stored_debug_image_;
@@ -138,6 +167,7 @@ private:
   double stored_sharpness_ = 0.0;
   Gaps stored_gaps_;
 
+  // ROS 2 Interfaces
   rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr image_sub_;
 
   rclcpp::Publisher<capra_landolt_msgs::msg::Landolts>::SharedPtr landolt_pub_;
@@ -153,11 +183,21 @@ private:
   rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr capture_service_;
   rclcpp::TimerBase::SharedPtr stored_detection_timer_;
 
+  /**
+   * @brief Calculates the magnitude of a 2D vector.
+   * * @param diff The 2D vector (cv::Point2f).
+   * @return float The magnitude (length) of the vector.
+   */
   static float magnitudePoint(const cv::Point2f & diff)
   {
     return std::sqrt(diff.dot(diff));
   }
 
+  /**
+   * @brief Normalizes a 2D vector to a length of 1.
+   * * @param diff The 2D vector to normalize.
+   * @return cv::Point2f The normalized vector. Returns (0,0) if magnitude is 0.
+   */
   static cv::Point2f normalizePoint(const cv::Point2f & diff)
   {
     const float mag = magnitudePoint(diff);
@@ -169,6 +209,12 @@ private:
     return diff / mag;
   }
 
+  /**
+   * @brief Calculates the absolute angle between two 2D vectors.
+   * * @param origin First vector.
+   * @param dest Second vector.
+   * @return float Angle in degrees from 0 to 360.
+   */
   static float angleBetween(cv::Point2f origin, cv::Point2f dest)
   {
     const float dot = origin.x * dest.x + origin.y * dest.y;
@@ -177,6 +223,11 @@ private:
     return std::atan2(det, dot) * static_cast<float>(180.0 / M_PI) + 180.0f;
   }
 
+  /**
+   * @brief Maps an angle in degrees to an 8-way compass direction.
+   * * @param angle_deg The gap angle in degrees.
+   * @return std::string Orientation string (T, TR, R, BR, B, BL, L, TL).
+   */
   static std::string angleToGenericOrientation(float angle_deg)
   {
     while (angle_deg < 0.0f) {
@@ -218,6 +269,13 @@ private:
     return "BR";
   }
 
+  /**
+   * @brief Converts an angle to a task-specific orientation string.
+   * * Maps the generic 8-way compass direction to a specific string format 
+   * required by the active RoboCup task mode (generic, linear, or omni).
+   * * @param angle_deg The gap angle in degrees.
+   * @return std::string The task-specific orientation label.
+   */
   std::string angleToOrientation(float angle_deg) const
   {
     const std::string generic = angleToGenericOrientation(angle_deg);
@@ -226,85 +284,34 @@ private:
       return generic;
     }
 
-    /*
-     * Mapeo usado:
-     *
-     * generic:
-     * T   = arriba
-     * TR  = arriba derecha
-     * R   = derecha
-     * BR  = abajo derecha
-     * B   = abajo
-     * BL  = abajo izquierda
-     * L   = izquierda
-     * TL  = arriba izquierda
-     *
-     * linear:
-     * LP = Left Perpendicular
-     * LA = Left Angled
-     * C  = Center
-     * RA = Right Angled
-     * RP = Right Perpendicular
-     *
-     * omni:
-     * LF = Left Front
-     * LB = Left Back
-     * C  = Center
-     * RF = Right Front
-     * RB = Right Back
-     */
-
     if (robocup_task_mode_ == "linear") {
-      if (generic == "T") {
-        return "C";
-      }
-
-      if (generic == "TL") {
-        return "LP";
-      }
-
-      if (generic == "BL") {
-        return "LA";
-      }
-
-      if (generic == "BR") {
-        return "RA";
-      }
-
-      if (generic == "TR") {
-        return "RP";
-      }
-
+      if (generic == "T") return "C";
+      if (generic == "TL") return "LP";
+      if (generic == "BL") return "LA";
+      if (generic == "BR") return "RA";
+      if (generic == "TR") return "RP";
       return generic;
     }
 
     if (robocup_task_mode_ == "omni") {
-      if (generic == "R") {
-        return "C";
-      }
-
-      if (generic == "T") {
-        return "LF";
-      }
-
-      if (generic == "BR") {
-        return "LB";
-      }
-
-      if (generic == "B") {
-        return "RF";
-      }
-
-      if (generic == "BL") {
-        return "RB";
-      }
-
+      if (generic == "R") return "C";
+      if (generic == "T") return "LF";
+      if (generic == "BR") return "LB";
+      if (generic == "B") return "RF";
+      if (generic == "BL") return "RB";
       return generic;
     }
 
     return generic;
   }
 
+  /**
+   * @brief Selects the best detection from a set of Gaps.
+   * * @param gaps The Gaps struct containing detection data.
+   * @param choose_largest If true, returns the index of the largest ring by radius. 
+   * Otherwise, returns the first detection.
+   * @return int The index of the best detection, or -1 if none exist.
+   */
   static int selectBestDetection(const Gaps & gaps, bool choose_largest)
   {
     if (gaps.angles.empty() || gaps.radius.empty() || gaps.centers.empty()) {
@@ -334,6 +341,14 @@ private:
     return best_idx;
   }
 
+  /**
+   * @brief Computes a bounding box (cv::Rect) to crop the detected ring.
+   * * @param image_size Dimensions of the original image to prevent out-of-bounds.
+   * @param center The center point of the detected ring.
+   * @param radius The radius of the detected ring.
+   * @param crop_scale Multiplier to expand the bounding box beyond the radius.
+   * @return cv::Rect The safe bounding box for cropping.
+   */
   static cv::Rect computeCropRect(
     const cv::Size & image_size,
     const cv::Point2f & center,
@@ -358,6 +373,11 @@ private:
     return cv::Rect(x_min, y_min, width, height);
   }
 
+  /**
+   * @brief Calculates the sharpness of an image using the Variance of Laplacian method.
+   * * @param image The input image (BGR or Grayscale).
+   * @return double Sharpness score. Higher values indicate a sharper image.
+   */
   double computeSharpness(const cv::Mat & image)
   {
     if (image.empty()) {
@@ -382,6 +402,12 @@ private:
     return stddev.val[0] * stddev.val[0];
   }
 
+  /**
+   * @brief Main subscription callback for incoming RGB images.
+   * * Converts ROS Image to OpenCV, executes the detection algorithm, 
+   * updates state variables, and triggers publishers.
+   * * @param msg The incoming ROS 2 Image message.
+   */
   void imageCallback(const sensor_msgs::msg::Image::ConstSharedPtr msg)
   {
     cv_bridge::CvImageConstPtr img_ptr;
@@ -429,6 +455,18 @@ private:
     }
   }
 
+  /**
+   * @brief Attempts to update the persistent (stored) detection.
+   * * Crops the best detection, evaluates its sharpness against `min_sharpness_`, 
+   * and if valid (or if forced), stores it for continuous UI publishing.
+   * * @param raw_image The full raw frame.
+   * @param debug_image The frame with drawn debug artifacts.
+   * @param header The ROS message header.
+   * @param gaps The detected gaps data.
+   * @param force_update If true, bypasses the sharpness filter.
+   * @return true If the detection was successfully stored.
+   * @return false If the detection was rejected (e.g., too blurry).
+   */
   bool updateStoredDetection(
     const cv::Mat & raw_image,
     const cv::Mat & debug_image,
@@ -508,6 +546,9 @@ private:
     return true;
   }
 
+  /**
+   * @brief Timer callback that continuously publishes the last valid stored detection.
+   */
   void publishStoredDetection()
   {
     cv::Mat crop_image;
@@ -555,6 +596,13 @@ private:
     publishCapturedBoundings(gaps);
   }
 
+  /**
+   * @brief ROS 2 Service callback to forcefully capture the current frame.
+   * * Triggers an immediate capture of the latest frame, bypassing the 
+   * blur/sharpness filter. Useful for manual overrides via UI.
+   * * @param request The Trigger service request (empty).
+   * @param response The Trigger service response (success boolean and message).
+   */
   void captureServiceCallback(
     const std::shared_ptr<std_srvs::srv::Trigger::Request> request,
     std::shared_ptr<std_srvs::srv::Trigger::Response> response)
@@ -609,11 +657,12 @@ private:
       ", detections in frame: " + std::to_string(gaps.angles.size());
   }
 
+  // --- Publisher Helper Methods ---
+
   void publishLandolts(const Gaps & gaps)
   {
     capra_landolt_msgs::msg::Landolts msg;
     msg.angles = gaps.angles;
-
     landolt_pub_->publish(msg);
   }
 
@@ -621,7 +670,6 @@ private:
   {
     capra_landolt_msgs::msg::BoundingCircles msg;
     msg.radius = gaps.radius;
-
     msg.centers.reserve(gaps.centers.size());
 
     for (const auto & center_cv : gaps.centers) {
@@ -638,7 +686,6 @@ private:
   {
     capra_landolt_msgs::msg::Landolts msg;
     msg.angles = gaps.angles;
-
     captured_landolt_pub_->publish(msg);
   }
 
@@ -646,7 +693,6 @@ private:
   {
     capra_landolt_msgs::msg::BoundingCircles msg;
     msg.radius = gaps.radius;
-
     msg.centers.reserve(gaps.centers.size());
 
     for (const auto & center_cv : gaps.centers) {
@@ -659,6 +705,12 @@ private:
     captured_bounding_pub_->publish(msg);
   }
 
+  /**
+   * @brief Generates an image with drawn detection artifacts (circles and text).
+   * * @param input_image The original BGR image.
+   * @param gaps The detection data to draw.
+   * @return cv::Mat The annotated debug image.
+   */
   cv::Mat createDebugImage(const cv::Mat & input_image, const Gaps & gaps)
   {
     cv::Mat debug_image = input_image.clone();
@@ -701,6 +753,18 @@ private:
     image_pub_->publish(*debug_msg);
   }
 
+  /**
+   * @brief Core computer vision algorithm to detect Landolt C gaps.
+   * * This function converts the image to grayscale, applies a binary threshold, 
+   * finds contours, and computes the convex hull. It then uses `cv::convexityDefects` 
+   * to locate the deepest inward "dent" (the gap) on circular objects, effectively 
+   * isolating the orientation of the Landolt C ring.
+   * * @param imageRaw The raw BGR input image.
+   * @param gaps [out] The struct populated with detected gap angles, radii, and centers.
+   * @param minEdge Minimum number of points a contour must have to be considered.
+   * @param minRatioCircle Minimum Area(Hull) / Area(MinEnclosingCircle) ratio to ensure circularity.
+   * @param minDepth Minimum depth of the convexity defect to be considered a valid gap.
+   */
   void findLandoltGaps(
     const cv::Mat & imageRaw,
     Gaps & gaps,
@@ -779,6 +843,7 @@ private:
         }
       }
 
+      // A valid Landolt C must have exactly ONE deep gap
       if (deepDefects.size() != 1) {
         continue;
       }
@@ -823,6 +888,11 @@ private:
   }
 };
 
+/**
+ * @brief Node entry point.
+ * * Initializes the ROS 2 context, instantiates the LandoltNode, 
+ * and spins it to handle callbacks.
+ */
 int main(int argc, char ** argv)
 {
   rclcpp::init(argc, argv);

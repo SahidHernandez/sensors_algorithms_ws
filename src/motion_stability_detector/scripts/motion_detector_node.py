@@ -1,4 +1,11 @@
 #!/usr/bin/env python3
+"""
+Motion Detection and Stability Analysis Node.
+
+Este nodo procesa flujos de video para detectar movimiento utilizando 
+sustracción de fondo (MOG2/KNN) y análisis de estabilidad basado en el área 
+de movimiento detectada.
+"""
 
 import cv2
 import numpy as np
@@ -13,6 +20,9 @@ from cv_bridge import CvBridge
 
 
 class MotionDetectorNode(Node):
+    """
+    Nodo de ROS 2 que detecta movimiento mediante la sustracción de fondo.
+    """
     def __init__(self):
         super().__init__('motion_detector_node')
 
@@ -144,6 +154,7 @@ class MotionDetectorNode(Node):
         self.get_logger().info(f'Stable frames required: {self.stable_frames_required}')
 
     def create_background_subtractor(self):
+        """Inicializa el sustractor de fondo según el algoritmo seleccionado."""
         if self.algorithm == 'MOG2':
             self.get_logger().info('Usando BackgroundSubtractorMOG2')
 
@@ -174,6 +185,9 @@ class MotionDetectorNode(Node):
             )
 
     def image_callback(self, msg):
+        """
+        Callback principal que procesa la imagen para detectar movimiento.
+        """
         try:
             frame = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
         except Exception as e:
@@ -193,8 +207,6 @@ class MotionDetectorNode(Node):
 
         fg_mask = self.bg_subtractor.apply(gray)
 
-        # Si detectShadows=True, OpenCV puede usar 127 para sombras.
-        # Aquí dejamos solo pixeles claramente blancos.
         _, fg_mask = cv2.threshold(
             fg_mask,
             self.threshold_value,
@@ -266,6 +278,7 @@ class MotionDetectorNode(Node):
         is_stable,
         is_warmup
     ):
+        """Publica los resultados de la detección en los tópicos correspondientes."""
         motion_area_msg = Float32()
         motion_area_msg.data = float(motion_area)
         self.motion_area_pub.publish(motion_area_msg)
@@ -352,19 +365,15 @@ class MotionDetectorNode(Node):
 
 def main(args=None):
     rclpy.init(args=args)
-
     node = MotionDetectorNode()
-
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:
         node.get_logger().info('Nodo detenido por usuario.')
     finally:
-        if node.show_window:
-            cv2.destroyAllWindows()
-
         node.destroy_node()
-        rclpy.shutdown()
+        if rclpy.ok():          # solo shutdown si el contexto sigue vivo
+            rclpy.shutdown()
 
 
 if __name__ == '__main__':

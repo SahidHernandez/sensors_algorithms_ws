@@ -1,39 +1,53 @@
-cameras:
-  realsense:
-    camera_name: camera
-    camera_namespace: ""
-    serial_no: "248622301894"
+# ==============================================================================
+# Global Camera Configuration - Sentinel Sensor Suite
+# ==============================================================================
+# This configuration file manages the parameters for all connected cameras, 
+# including RealSense (Depth/RGB), UGREEN USB, Fisheye, and Thermal sensors.
+# ==============================================================================
 
+cameras:
+  # Intel RealSense D455 Settings
+  realsense:
+    camera_name: "camera"
+    camera_namespace: ""
+    serial_no: "248622301894" # Specific hardware identifier
+
+    # Pipeline enabling flags
     enable_color: true
     enable_depth: true
-    align_depth_enable: true
+    align_depth_enable: true     # Aligns depth frames to RGB frame coordinates
     pointcloud_enable: false
 
+    # Resolution and frame rate settings (Width x Height x FPS)
     color_profile: "640x480x15"
     depth_profile: "640x480x15"
 
+    # Sync and TF settings
     enable_sync: false
     publish_tf: true
-    tf_publish_rate: 0.0
-    initial_reset: false
-    reconnect_timeout: 6.0
-    wait_for_device_timeout: -1.0
+    tf_publish_rate: 0.0         # 0.0 disables periodic TF publishing
+    initial_reset: false         # Reset device on startup
+    reconnect_timeout: 6.0       # Seconds to wait before attempting reconnect
+    wait_for_device_timeout: -1.0 # Timeout waiting for hardware (negative = infinite)
 
+  # UGREEN 2K USB Camera Settings
   usb_camera:
     video_device: "/dev/v4l/by-id/usb-UGREEN_UGREEN_camera_2K_AN202402200003-video-index0"
-    image_size: [432, 240]
+    image_size: [432, 240]       # Resized to optimize algorithm throughput
     framerate: 15.0
     pixel_format: "YUYV"
-    output_encoding: "rgb8"
+    output_encoding: "rgb8"      # ROS standard encoding
     camera_frame_id: "usb_camera_link"
     image_topic: "/usb_camera/image_raw"
     camera_info_topic: "/usb_camera/camera_info"
 
+  # Fisheye Wide-Angle Camera Settings
   fisheye:
     video_device: "/dev/v4l/by-id/usb-HD_USB_Camera_HD_USB_Camera-video-index0"
     framerate: 15.0
     pixel_format: "YUYV"
     output_encoding: "rgb8"
 
+  # Thermal Camera Settings
   thermal_camera:
     video_device: "/dev/v4l/by-id/usb-Generic_USB_Camera_200901010001-video-index0"

@@ -1,3 +1,14 @@
+"""
+Launch file for SLAM and Semantic Landmark Mapping.
+
+This script integrates the camera bringup, RTAB-Map for Visual SLAM, 
+YOLO for 3D object detection, and a custom landmark saver node. 
+It creates a pipeline where RTAB-Map generates the spatial map and 
+odometry, while YOLO detects objects in 3D space. The landmark saver 
+then filters and anchors these detections into the global map frame 
+as persistent semantic landmarks.
+"""
+
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, ExecuteProcess, IncludeLaunchDescription
 from launch.conditions import IfCondition
@@ -8,6 +19,25 @@ from launch_ros.substitutions import FindPackageShare
 
 
 def generate_launch_description():
+    """
+    Generates the ROS 2 LaunchDescription for the semantic mapping stack.
+
+    This function sets up the following components:
+    1. Base Cameras: Starts the camera suite (RealSense, etc.).
+    2. RTAB-Map: Configured for RGB-D visual SLAM, syncing depth and color,
+       and automatically resetting its database on startup.
+    3. YOLO 3D: Runs object detection and projects bounding boxes into 3D space 
+       using the aligned depth map.
+    4. Landmark Saver: A custom node that filters 3D detections based on 
+       confidence scores, distances, and confirmation timeouts to save stable 
+       landmarks into a JSON file.
+    5. Reset Process: An optional conditional process to clear the old landmarks 
+       file before starting.
+
+    Returns:
+        LaunchDescription: The populated launch description object containing 
+            all declarations, includes, and nodes for the SLAM pipeline.
+    """
     cameras_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             PathJoinSubstitution([

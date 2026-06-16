@@ -1,3 +1,19 @@
+"""
+Launch file for the Fisheye Camera.
+
+This script configures and launches the `v4l2_camera_node` specifically 
+for the robot's fisheye camera using the Video4Linux2 driver. It dynamically 
+loads camera calibration data, configures frame rates and pixel formats, 
+and applies 'best_effort' Quality of Service (QoS) overrides necessary for 
+smooth, low-latency video streaming in ROS 2 Humble.
+
+Note:
+    The `image_proc/rectify_node` is currently disabled because a placeholder 
+    calibration is in use (distortion [0,0,0,0,0]). It should be uncommented 
+    and re-enabled once a proper intrinsic calibration is performed using 
+    the cameracalibrator tool.
+"""
+
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
@@ -6,7 +22,19 @@ from launch_ros.substitutions import FindPackageShare
 
 
 def generate_launch_description():
+    """
+    Generates the ROS 2 LaunchDescription for the fisheye camera.
 
+    Declares launch arguments for the device path, framerate, pixel format, 
+    and encoding, allowing them to be overridden from the command line or 
+    master launch files. It constructs the v4l2 node with specific QoS 
+    overrides passed directly as ROS arguments, bypassing a known limitation 
+    with parameter overrides in ROS 2 Humble.
+
+    Returns:
+        LaunchDescription: The populated launch description containing 
+            the configured arguments and the camera node.
+    """
     pkg_share = FindPackageShare('fisheye_camera')
 
     video_device_arg = DeclareLaunchArgument(

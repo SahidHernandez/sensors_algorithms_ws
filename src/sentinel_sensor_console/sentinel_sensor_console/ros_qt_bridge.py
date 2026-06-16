@@ -1,103 +1,145 @@
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
+from rclpy.executors import SingleThreadedExecutor, ExternalShutdownException
+from rclpy.context import Context
+
 from sensor_msgs.msg import Image
-from std_msgs.msg import String, Bool, Float32
+from std_msgs.msg import String, Bool, Float32, Empty
 from cv_bridge import CvBridge
 from yolo_msgs.msg import DetectionArray
 
 from PySide6.QtCore import QObject, QThread, Signal
 
-from std_msgs.msg import String, Bool, Float32, Empty
-
-from rclpy.executors import SingleThreadedExecutor, ExternalShutdownException
-from rclpy.context import Context
-
-import rclpy.executors
 
 class RosSignals(QObject):
-    new_image = Signal(object, str)
-    qr_text_update = Signal(str)
+    """Contenedor de señales Qt para comunicación thread-safe ROS2 → UI.
+
+    Todas las señales se emiten desde ``SentinelConsoleNode`` (hilo ROS2)
+    y se consumen en el hilo principal de PySide6.
+
+    Signals:
+        new_image (object, str): Frame BGR + nombre del topic de origen.
+        qr_text_update (str): Texto decodificado del QR.
+        qr_status_update (str): Estado del detector QR (e.g. ``"DETECTED"``).
+        landolt_orientation_update (str): Orientación detectada por Landolt.
+        motion_status_update (bool, float): Estabilidad y área de movimiento.
+        yolo_text_update (str): Resumen de detecciones YOLO 3D.
+        mag_heading_update (float): Heading del magnetómetro en grados.
+    """
+
+    new_image                  = Signal(object, str)
+    qr_text_update             = Signal(str)
+    qr_status_update           = Signal(str)
     landolt_orientation_update = Signal(str)
-    motion_status_update = Signal(bool, float)
-    yolo_text_update = Signal(str)
-    qr_status_update = Signal(str)
-    mag_heading_update = Signal(float)
+    motion_status_update       = Signal(bool, float)
+    yolo_text_update           = Signal(str)
+    mag_heading_update         = Signal(float)
+
 
 class SentinelConsoleNode(Node):
+    """Nodo ROS2 que suscribe a sensores y algoritmos y emite señales Qt.
+
+    Actúa como bridge entre el ecosistema ROS2 y la UI PySide6. Las imágenes
+    se throttlean a 15 FPS antes de emitir para no saturar el hilo de UI.
+    Los datos de motion se agrupan: ``is_stable`` se almacena internamente y
+    se emite junto con ``motion_area`` en cada callback de área.
+
+    Publishers:
+        /landolt/capture_command (Bool): Solicita captura manual a Landolt.
+        /system/debug_mode (Bool): Activa/desactiva modo debug global.
+        /system/restart_cameras (Empty): Reinicia el bringup de cámaras.
+
+    Args:
+        signals: Instancia de ``RosSignals`` donde se emiten las señales Qt.
+        context: Contexto ROS2 dedicado (requerido para uso en hilo separado).
+    """
+
     def __init__(self, signals: RosSignals, context=None):
-        super().__init__('sentinel_console_node', context = context)
+        super().__init__('sentinel_console_node', context=context)
         self.signals = signals
         self.cv_bridge = CvBridge()
 
         self._last_emit_time: dict = {}
-        self._emit_interval = 1.0 / 15.0  # throttle a 15fps en la UI
-        
+        self._emit_interval = 1.0 / 15.0  # Throttle a 15 FPS en la UI
+
+        self.current_motion_stable = False
+
         image_qos = QoSProfile(
             reliability=ReliabilityPolicy.BEST_EFFORT,
             history=HistoryPolicy.KEEP_LAST,
             depth=1
         )
-        
-        # --- FASE 1: CÁMARAS ---
-        self.create_subscription(Image, '/usb_camera/image_raw', self.usb_camera_callback, image_qos)
-        self.create_subscription(Image, '/fisheye/image_raw', self.fisheye_callback, image_qos)
-        self.create_subscription(Image, '/camera/color/image_raw', self.realsense_callback, image_qos)
-        self.create_subscription(Image, '/thermal_camera/image_raw', self.thermal_callback, image_qos)
-        
-        # --- FASE 2: ALGORITMOS (IMÁGENES - VIDEO CONTINUO) ---
-        self.create_subscription(Image, '/qr_detector/debug_image', self.qr_video_callback, image_qos)
-        self.create_subscription(Image, '/image', self.landolt_video_callback, image_qos)
-        self.create_subscription(Image, '/motion_detector/debug_image', self.motion_video_callback, image_qos)
-        self.create_subscription(Image, '/yolo/dbg_image', self.yolo_video_callback, image_qos) # <-- Tópico corregido
-        
-        # --- FASE 2: ALGORITMOS (DATOS / TEXTO) ---
-        reliable_qos = QoSProfile(reliability=ReliabilityPolicy.RELIABLE, history=HistoryPolicy.KEEP_LAST, depth=10)
-        self.create_subscription(String, '/qr_detector/capture_text', self.qr_text_callback, reliable_qos)
-        self.create_subscription(String, '/captured/orientation', self.landolt_orient_callback, reliable_qos)
-        
-        self.create_subscription(Bool, '/motion_detector/is_stable', self.motion_stable_callback, reliable_qos)
-        self.create_subscription(Float32, '/motion_detector/motion_area', self.motion_area_callback, reliable_qos)
-        self.create_subscription(DetectionArray, '/yolo/detections_3d', self.yolo_data_callback, reliable_qos) # <-- NUEVO
-
-        self.sub_mag = self.create_subscription(
-            Float32,
-            '/magnetometer/heading', 
-            self.mag_callback,
-            10
+        reliable_qos = QoSProfile(
+            reliability=ReliabilityPolicy.RELIABLE,
+            history=HistoryPolicy.KEEP_LAST,
+            depth=10
         )
 
-        self.pub_capture_landolt = self.create_publisher(Bool, '/landolt/capture_command', 10)
-        self.pub_enable_debug = self.create_publisher(Bool, '/system/debug_mode', 10)
-        self.pub_restart_cams = self.create_publisher(Empty, '/system/restart_cameras', 10)
+        # --- Cámaras ---
+        self.create_subscription(Image, '/usb_camera/image_raw',      self.usb_camera_callback, image_qos)
+        self.create_subscription(Image, '/fisheye/image_raw',         self.fisheye_callback,    image_qos)
+        self.create_subscription(Image, '/camera/color/image_raw',    self.realsense_callback,  image_qos)
+        self.create_subscription(Image, '/thermal_camera/image_raw',  self.thermal_callback,    image_qos)
 
-        # Variables de estado interno para agrupar las señales de motion
-        self.current_motion_stable = False
+        # --- Algoritmos: video ---
+        self.create_subscription(Image, '/qr_detector/debug_image',      self.qr_video_callback,     image_qos)
+        self.create_subscription(Image, '/image',                         self.landolt_video_callback, image_qos)
+        self.create_subscription(Image, '/motion_detector/debug_image',   self.motion_video_callback, image_qos)
+        self.create_subscription(Image, '/yolo/dbg_image',                self.yolo_video_callback,   image_qos)
 
-        self.get_logger().info("ROS 2 Bridge Node iniciado. Fase 1 y Fase 2 activas.")
+        # --- Algoritmos: datos ---
+        self.create_subscription(String,         '/qr_detector/capture_text',  self.qr_text_callback,      reliable_qos)
+        self.create_subscription(String,         '/captured/orientation',       self.landolt_orient_callback, reliable_qos)
+        self.create_subscription(Bool,           '/motion_detector/is_stable',  self.motion_stable_callback, reliable_qos)
+        self.create_subscription(Float32,        '/motion_detector/motion_area',self.motion_area_callback,  reliable_qos)
+        self.create_subscription(DetectionArray, '/yolo/detections_3d',         self.yolo_data_callback,    reliable_qos)
+        self.create_subscription(Float32,        '/magnetometer/heading',        self.mag_callback,          10)
 
-    # Callbacks de Cámaras (usando el nombre del tópico como identificador)
-    def usb_camera_callback(self, msg): self._process_image(msg, "/usb_camera/image_raw")
-    def fisheye_callback(self, msg): self._process_image(msg, "/fisheye/image_raw")
-    def realsense_callback(self, msg): self._process_image(msg, "/camera/color/image_raw")
-    def thermal_callback(self, msg): self._process_image(msg, "/thermal_camera/image_raw")
-    
-    # Callbacks de Algoritmos
-    def qr_video_callback(self, msg): self._process_image(msg, "/qr_detector/debug_image")
-    def landolt_video_callback(self, msg): self._process_image(msg, "/image")
+        # --- Publishers ---
+        self.pub_capture_landolt = self.create_publisher(Bool,  '/landolt/capture_command',  10)
+        self.pub_enable_debug    = self.create_publisher(Bool,  '/system/debug_mode',        10)
+        self.pub_restart_cams   = self.create_publisher(Empty, '/system/restart_cameras',   10)
+
+        self.get_logger().info("ROS2 Bridge Node iniciado. Fase 1 y Fase 2 activas.")
+
+    # ------------------------------------------------------------------
+    # Callbacks de cámara
+    # ------------------------------------------------------------------
+
+    def usb_camera_callback(self, msg):   self._process_image(msg, "/usb_camera/image_raw")
+    def fisheye_callback(self, msg):      self._process_image(msg, "/fisheye/image_raw")
+    def realsense_callback(self, msg):    self._process_image(msg, "/camera/color/image_raw")
+    def thermal_callback(self, msg):      self._process_image(msg, "/thermal_camera/image_raw")
+
+    # ------------------------------------------------------------------
+    # Callbacks de video de algoritmos
+    # ------------------------------------------------------------------
+
+    def qr_video_callback(self, msg):     self._process_image(msg, "/qr_detector/debug_image")
+    def landolt_video_callback(self, msg):self._process_image(msg, "/image")
     def motion_video_callback(self, msg): self._process_image(msg, "/motion_detector/debug_image")
-    def yolo_video_callback(self, msg): self._process_image(msg, "/yolo/dbg_image")
+    def yolo_video_callback(self, msg):   self._process_image(msg, "/yolo/dbg_image")  # FIX: source_name corregido
 
-    def mag_callback(self, msg):
-        # Transmite los grados a PySide6
-        self.signals.mag_heading_update.emit(msg.data)
+    # ------------------------------------------------------------------
+    # Procesamiento de imagen con throttle
+    # ------------------------------------------------------------------
 
-    def _process_image(self, msg, source_name):
+    def _process_image(self, msg, source_name: str) -> None:
+        """Convierte un mensaje Image a BGR y lo emite con throttle a 15 FPS.
+
+        Descarta el frame si no ha transcurrido ``_emit_interval`` desde la
+        última emisión del mismo ``source_name``.
+
+        Args:
+            msg: Mensaje ``sensor_msgs/Image`` recibido.
+            source_name: Topic de origen usado como clave de throttle e
+                identificador en ``new_image``.
+        """
         try:
             import time
             now = time.monotonic()
-            last = self._last_emit_time.get(source_name, 0.0)
-            if (now - last) < self._emit_interval:
+            if (now - self._last_emit_time.get(source_name, 0.0)) < self._emit_interval:
                 return
             self._last_emit_time[source_name] = now
 
@@ -106,87 +148,107 @@ class SentinelConsoleNode(Node):
         except Exception as e:
             self.get_logger().error(f"Error imagen {source_name}: {e}")
 
-    # --- Callbacks de Textos y Estados ---
-    def qr_text_callback(self, msg):
-        # 1. Actualiza la tarjeta de abajo (el texto grande)
-        self.signals.qr_text_update.emit(msg.data)
-        # 2. Actualiza el status panel lateral
-        self.signals.qr_status_update.emit("DETECTED")
-        # 3. Opcional: pasar el texto al status panel también
-        self.signals.qr_text_update.connect(lambda t: self.status_panel.update_algo_status("QR", "DETECTED", f"Text: {t}"))
+    # ------------------------------------------------------------------
+    # Callbacks de datos / texto
+    # ------------------------------------------------------------------
 
-    def landolt_orient_callback(self, msg):
+    def qr_text_callback(self, msg: String) -> None:
+        """Emite el texto QR y actualiza el status a DETECTED.
+
+        Args:
+            msg: Mensaje con el texto decodificado del QR.
+        """
+        # FIX: eliminado el .connect() que se registraba en cada mensaje
+        self.signals.qr_text_update.emit(msg.data)
+        self.signals.qr_status_update.emit("DETECTED")
+
+    def landolt_orient_callback(self, msg: String) -> None:
+        """Emite la orientación detectada por el algoritmo Landolt."""
         self.signals.landolt_orientation_update.emit(msg.data)
 
-    def motion_stable_callback(self, msg):
+    def motion_stable_callback(self, msg: Bool) -> None:
+        """Almacena el estado de estabilidad para combinarlo con el área."""
         self.current_motion_stable = msg.data
 
-    def motion_area_callback(self, msg):
+    def motion_area_callback(self, msg: Float32) -> None:
+        """Emite el estado de motion agrupando estabilidad y área actual."""
         self.signals.motion_status_update.emit(self.current_motion_stable, msg.data)
 
-    def yolo_video_callback(self, msg): 
-        self._process_image(msg, "YOLO 3D")
+    def mag_callback(self, msg: Float32) -> None:
+        """Emite el heading del magnetómetro en grados."""
+        self.signals.mag_heading_update.emit(msg.data)
 
-    def yolo_data_callback(self, msg):
-        # msg.detections es una lista de objetos detectados en ese frame
-        num_detections = len(msg.detections)
-        
-        if num_detections == 0:
+    def yolo_data_callback(self, msg: DetectionArray) -> None:
+        """Formatea las detecciones YOLO 3D y emite el resumen como texto.
+
+        Agrupa los nombres de clase sin repetir usando un ``set``. Si no
+        hay detecciones emite ``"No objects detected"``.
+
+        Args:
+            msg: Mensaje ``DetectionArray`` con lista de detecciones 3D.
+        """
+        num = len(msg.detections)
+        if num == 0:
             self.signals.yolo_text_update.emit("No objects detected")
         else:
-            # Extraemos los nombres de las clases (ej: 'person', 'chair', 'bottle')
-            # Usamos un Set para no repetir nombres (ej: en vez de "person, person", solo "person")
-            detected_classes = set()
-            for detection in msg.detections:
-                detected_classes.add(detection.class_name)
-            
-            # Formateamos el texto final
-            class_names_str = ", ".join(detected_classes)
-            status_text = f"Objects: {num_detections}\n[{class_names_str}]"
-            
-            self.signals.yolo_text_update.emit(status_text)
+            detected_classes = {d.class_name for d in msg.detections}
+            self.signals.yolo_text_update.emit(
+                f"Objects: {num}\n[{', '.join(detected_classes)}]"
+            )
 
-    def execute_command(self, action_name):
-        """Recibe el string de la interfaz y lo traduce a comandos de ROS 2"""
+    # ------------------------------------------------------------------
+    # Comandos desde la UI
+    # ------------------------------------------------------------------
+
+    def execute_command(self, action_name: str) -> None:
+        """Traduce una acción de la UI a un comando ROS2 publicado.
+
+        Args:
+            action_name: Nombre de la acción. Valores soportados:
+                ``"Capture Landolt"``, ``"Enable Debug"``, ``"Restart Cameras"``,
+                ``"Clear Captures"`` (sin efecto en ROS2, manejado en UI).
+        """
         self.get_logger().info(f"UI command received: {action_name}")
-        
+
         if action_name == "Capture Landolt":
-            msg = Bool()
-            msg.data = True
+            msg = Bool(); msg.data = True
             self.pub_capture_landolt.publish(msg)
-            
+
         elif action_name == "Enable Debug":
-            msg = Bool()
-            msg.data = True # O haz un toggle (True/False)
+            msg = Bool(); msg.data = True
             self.pub_enable_debug.publish(msg)
-            
+
         elif action_name == "Restart Cameras":
-            msg = Empty()
-            self.pub_restart_cams.publish(msg)
-            
+            self.pub_restart_cams.publish(Empty())
+
         elif action_name == "Clear Captures":
-            # Si esto solo limpia la UI, puedes emitir una señal de vuelta al main.
-            # Si limpia un buffer en ROS, publica a un tópico.
-            pass
+            pass  # Manejado únicamente en la UI
 
 
 class RosThread(QThread):
-    def __init__(self, signals):
-        super().__init__()
-        self.signals = signals
-        self.node = None
-        self.executor = None
-        self.context = None
+    """Hilo Qt que ejecuta el spin de ROS2 en un contexto dedicado.
 
-    def run(self):
-        # 1. Create a dedicated context for this thread
+    Usa un ``Context`` y ``SingleThreadedExecutor`` propios para aislarse
+    del contexto global de rclpy y permitir shutdown limpio desde la UI.
+
+    Args:
+        signals: Instancia de ``RosSignals`` pasada a ``SentinelConsoleNode``.
+    """
+
+    def __init__(self, signals: RosSignals):
+        super().__init__()
+        self.signals  = signals
+        self.node     = None
+        self.executor = None
+        self.context  = None
+
+    def run(self) -> None:
+        """Inicializa el contexto ROS2, crea el nodo y ejecuta el spin."""
         self.context = Context()
         rclpy.init(context=self.context)
 
-        # 2. Instantiate the node within this context
         self.node = SentinelConsoleNode(self.signals, context=self.context)
-        
-        # 3. Use a dedicated executor bound to the context
+
         self.executor = SingleThreadedExecutor(context=self.context)
         self.executor.add_node(self.node)
 
@@ -200,7 +262,8 @@ class RosThread(QThread):
                 self.node.destroy_node()
                 rclpy.shutdown(context=self.context)
 
-    def stop(self):
+    def stop(self) -> None:
+        """Solicita el shutdown del executor y espera a que el hilo termine."""
         if self.executor:
             self.executor.shutdown()
         self.wait()

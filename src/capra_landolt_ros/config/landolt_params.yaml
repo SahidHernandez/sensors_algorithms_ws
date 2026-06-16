@@ -1,10 +1,29 @@
+# ==============================================================================
+# Landolt C Ring Detection Parameters
+# ==============================================================================
+# Fine-tuning parameters for the Landolt C detection algorithm. 
+# These values control image processing, contour analysis, and detection logic.
+# ==============================================================================
+
 landolt_node:
   ros__parameters:
-    camera_topic: /camera/color/image_raw
+    # Topic to subscribe for input RGB image frames.
+    camera_topic: "/camera/color/image_raw"
 
+    # Threshold for binarization: Pixels above this value become white.
     threshold_value: 140
+
+    # Minimum number of points required to form a valid contour.
+    # Increasing this filters out small noise/speckles.
     min_edge: 12
+
+    # Minimum circularity ratio (Area of Convex Hull / Area of Bounding Circle).
+    # Value close to 1.0 means the contour is strictly circular.
     min_ratio_circle: 0.8
+
+    # Depth of the convexity defect (the "dent" in the ring).
+    # Higher values require a more pronounced gap to trigger a detection.
     min_depth: 10
 
+    # Whether to publish an annotated image for visual debugging.
     publish_debug_image: true

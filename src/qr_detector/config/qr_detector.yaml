@@ -1,26 +1,115 @@
+# =============================================================================
+# qr_detector_params.yaml
+# Archivo de configuración para QRDetectorNode (ROS2)
+#
+# Uso:
+#   ros2 launch qr_detector qr_detector.launch.py params_file:=<ruta a este archivo>
+#   ros2 run qr_detector qr_detector_node --ros-args --params-file <ruta a este archivo>
+# =============================================================================
+
 qr_detector_node:
   ros__parameters:
 
+    # -------------------------------------------------------------------------
+    # GENERAL
+    # -------------------------------------------------------------------------
+
+    # Topic de imagen de entrada.
+    # Ajustar según el driver de cámara utilizado.
+    # Ejemplos:
+    #   RealSense:  /camera/color/image_raw
+    #   USB genérica: /usb_cam/image_raw
+    #   Fisheye:    /fisheye/image_raw
     image_topic: "/camera/color/image_raw"
 
+    # Publicar imagen con anotaciones visuales en /qr_detector/debug_image.
+    # Recomendado: true en desarrollo, false en producción para reducir ancho de banda.
     publish_debug_image: true
+
+    # Mostrar ventana OpenCV local (requiere entorno gráfico).
+    # IMPORTANTE: Mantener en false cuando se ejecuta en Jetson/headless/SSH.
     show_window: false
 
+    # -------------------------------------------------------------------------
+    # DETECCIÓN — PREPROCESAMIENTO
+    # -------------------------------------------------------------------------
+
+    # Ancho en píxeles al que se redimensiona el frame antes de la detección.
+    # Útil para acelerar el procesamiento en cámaras de alta resolución.
+    # 0 = sin redimensión (usa resolución original).
+    # Recomendado: 640 para resoluciones > 1080p.
     resize_width: 0
 
+    # Convertir a escala de grises antes de decodificar.
+    # Mejora velocidad y robustez de pyzbar en la mayoría de los casos.
+    # Desactivar solo si el QR tiene codificación de color específica.
     use_grayscale: true
+
+    # Aplicar ecualización de histograma para mejorar contraste.
+    # Útil en ambientes con iluminación irregular o muy oscura.
+    # Puede degradar la detección en escenas ya bien iluminadas.
     use_equalization: false
+
+    # Aplicar umbralización adaptativa gaussiana (binarización local).
+    # Mejora la detección en superficies con gradientes de iluminación.
+    # Incompatible con use_equalization simultáneo; usar uno u otro.
     use_adaptive_threshold: false
 
+    # -------------------------------------------------------------------------
+    # DETECCIÓN — VISUALIZACIÓN
+    # -------------------------------------------------------------------------
+
+    # Dibujar polígono verde sobre el QR detectado en el debug image.
+    # Incluye puntos rojos en cada vértice del polígono.
     draw_qr_polygon: true
+
+    # Dibujar caja de texto con el contenido decodificado del QR.
+    # El texto se trunca a 35 caracteres si es más largo.
     draw_qr_text: true
+
+    # Loggear el texto del QR solo cuando cambia respecto al anterior.
+    # true  → reduce spam en consola cuando el mismo QR permanece en cuadro.
+    # false → loggea en cada frame donde se detecte un QR.
     print_only_when_changed: true
 
+    # -------------------------------------------------------------------------
+    # DETECCIÓN — FILTROS
+    # -------------------------------------------------------------------------
+
+    # Longitud mínima de caracteres que debe tener el texto decodificado
+    # para ser considerado válido. Filtra lecturas parciales o corruptas.
+    # Aumentar si se obtienen falsos positivos con textos muy cortos.
     min_text_length: 1
 
+    # -------------------------------------------------------------------------
+    # CAPTURA
+    # -------------------------------------------------------------------------
+
+    # Umbral mínimo de nitidez (varianza del Laplaciano) para autorizar captura.
+    # Frames con valor inferior se descartan por ser considerados borrosos.
+    # Referencia orientativa:
+    #   < 50   → imagen muy borrosa
+    #   50–150 → nitidez baja (puede fallar lectura)
+    #   150–400 → rango típico aceptable
+    #   > 400  → imagen muy nítida
+    # Ajustar según condiciones de iluminación y distancia al QR.
     sharpness_threshold: 30.0
+
+    # Requerir que haya un QR detectado además de superar sharpness_threshold
+    # para publicar una captura.
+    # true  → captura solo cuando hay QR visible y el frame es nítido.
+    # false → captura cualquier frame nítido, independientemente del QR.
     capture_only_if_qr_detected: true
+
+    # Número mínimo de frames entre capturas consecutivas.
+    # Evita publicar múltiples capturas del mismo QR en ráfaga.
+    # A 30 FPS: 30 frames ≈ 1 segundo entre capturas.
     capture_cooldown_frames: 30
 
-    # Importante: true para que la captura tenga cuadro y texto
+    # Publicar la captura con anotaciones visuales (polígono + texto) en lugar
+    # del frame limpio original.
+    # true  → /qr_detector/capture_image contiene el debug frame anotado.
+    # false → /qr_detector/capture_image contiene el frame BGR sin modificar.
+    # IMPORTANTE: Mantener en true si la captura se usa para registro visual
+    # o verificación humana; false si se procesa automáticamente aguas abajo.
     publish_capture_debug: true
