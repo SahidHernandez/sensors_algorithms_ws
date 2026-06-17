@@ -8,7 +8,7 @@ Repositorio central del sistema de percepción y navegación del robot **Sentine
 
 El sistema se basa en una arquitectura modular de ROS 2 Humble dividida en cuatro capas:
 
-1. **Hardware Abstraction Layer (HAL):** Drivers de cámara (RealSense D455, Fisheye, USB, Térmica TC001 Max) vía `v4l2_camera` y drivers específicos. CycloneDDS como middleware DDS con configuración de `MaxMessageSize` y fragmentación UDP para interfaces WiFi+Ethernet.
+1. **Hardware Abstraction Layer (HAL):** Drivers de cámara (RealSense D455, Fisheye, USB, Térmica TC001) vía `v4l2_camera` y drivers específicos. CycloneDDS como middleware DDS con configuración de `MaxMessageSize` y fragmentación UDP para interfaces WiFi+Ethernet.
 2. **Percepción & Algoritmos:** Detección de anillos de Landolt, análisis de estabilidad de movimiento, decodificación QR con filtro de nitidez y detección YOLO 3D con landmarks.
 3. **Mapeo & Localización:** SLAM RGB-D con RTAB-Map (RealSense D455), Point-LIO para LiDAR, cadena TF `map → odom → base_link`.
 4. **UI/Console:** Interfaz gráfica en **PySide6** con grid de cámaras 2×2, resultados de algoritmos, panel de diagnóstico y log de eventos. Bridge ROS2↔Qt vía `QThread` con throttle a 15 FPS.
