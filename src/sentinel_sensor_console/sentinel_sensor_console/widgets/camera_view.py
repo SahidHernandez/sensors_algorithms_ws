@@ -4,7 +4,7 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QComboBox, QGridLayout, QFrame, QSizePolicy
 )
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QSize
 from PySide6.QtGui import QImage, QPixmap
 
 
@@ -113,9 +113,18 @@ class CameraCell(QFrame):
         if label_size != self._last_label_size or (w, h) != self._last_src_size:
             self._last_label_size = label_size
             self._last_src_size = (w, h)
-            self._cached_scale_size = QPixmap.fromImage(qimage).scaled(
-                label_size, Qt.KeepAspectRatio, Qt.SmoothTransformation
-            ).size()
+            # Calcular tamaño sin crear pixmap
+            src_ratio = w / h
+            if label_size.height() == 0 or label_size.width() == 0:  # Evitar división por cero
+                return
+            lbl_ratio = label_size.width() / label_size.height()
+            if src_ratio > lbl_ratio:
+                sw = label_size.width()
+                sh = int(sw / src_ratio)
+            else:
+                sh = label_size.height()
+                sw = int(sh * src_ratio)
+            self._cached_scale_size = QSize(sw, sh)
 
         pixmap = QPixmap.fromImage(qimage).scaled(
             self._cached_scale_size, Qt.IgnoreAspectRatio, Qt.FastTransformation

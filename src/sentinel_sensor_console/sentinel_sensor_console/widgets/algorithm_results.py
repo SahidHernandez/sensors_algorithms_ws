@@ -75,21 +75,19 @@ class VideoModalDialog(QDialog):
         super().showEvent(event)
 
     def update_image(self, cv_image: np.ndarray) -> None:
-        """Convierte un frame BGR a QPixmap y lo muestra escalado.
-
-        No hace nada si el modal no está visible o la imagen es None.
-
-        Args:
-            cv_image: Frame BGR como array NumPy ``(H, W, 3)``.
-        """
         if cv_image is None or not self.isVisible():
             return
-        height, width, channel = cv_image.shape
+        height, width = cv_image.shape[:2]
         bytes_per_line = 3 * width
-        cv_image_rgb = cv2.cvtColor(cv_image, cv2.COLOR_BGR2RGB)
-        qimage = QImage(cv_image_rgb.data, width, height, bytes_per_line, QImage.Format_RGB888)
-        raw_pixmap = QPixmap.fromImage(qimage)
-        self.cached_pixmap = raw_pixmap.scaled(self.cached_size, Qt.KeepAspectRatio, Qt.FastTransformation)
+        rgb = cv_image[:, :, ::-1]
+        if not rgb.flags['C_CONTIGUOUS']:
+            rgb = np.ascontiguousarray(rgb)
+        qimage = QImage(rgb.data, width, height, bytes_per_line, QImage.Format_RGB888)
+        self.cached_pixmap = QPixmap.fromImage(qimage).scaled(
+            self.video_label.size(),   # leer tamaño actual, no el cacheado
+            Qt.KeepAspectRatio,
+            Qt.FastTransformation
+        )
         self.video_label.setPixmap(self.cached_pixmap)
 
 

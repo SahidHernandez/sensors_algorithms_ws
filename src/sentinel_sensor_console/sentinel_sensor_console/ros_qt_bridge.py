@@ -11,6 +11,8 @@ from yolo_msgs.msg import DetectionArray
 
 from PySide6.QtCore import QObject, QThread, Signal
 
+import time 
+
 
 class RosSignals(QObject):
     """Contenedor de señales Qt para comunicación thread-safe ROS2 → UI.
@@ -68,7 +70,7 @@ class SentinelConsoleNode(Node):
         image_qos = QoSProfile(
             reliability=ReliabilityPolicy.BEST_EFFORT,
             history=HistoryPolicy.KEEP_LAST,
-            depth=1
+            depth=2
         )
         reliable_qos = QoSProfile(
             reliability=ReliabilityPolicy.RELIABLE,
@@ -137,12 +139,10 @@ class SentinelConsoleNode(Node):
                 identificador en ``new_image``.
         """
         try:
-            import time
             now = time.monotonic()
             if (now - self._last_emit_time.get(source_name, 0.0)) < self._emit_interval:
-                return
+                return                                          # sale antes de convertir
             self._last_emit_time[source_name] = now
-
             cv_image = self.cv_bridge.imgmsg_to_cv2(msg, "bgr8")
             self.signals.new_image.emit(cv_image, source_name)
         except Exception as e:

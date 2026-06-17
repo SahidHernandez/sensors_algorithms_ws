@@ -141,7 +141,7 @@ class SentinelConsoleApp(QMainWindow):
         self.ros_thread = RosThread(self.ros_signals)
         self.ros_thread.start()
 
-    def _check_stream_active(self, cv_image, source_name: str) -> None:
+    def _check_stream_active(self, cv_image, source_name):
         """Marca un stream como activo la primera vez que recibe un frame.
 
         Traduce ``source_name`` al nombre del sensor en el panel de estado
@@ -174,6 +174,24 @@ class SentinelConsoleApp(QMainWindow):
                     f"{w}x{h} Stream",
                     "#3FB950"
                 )
+            
+            # Si ya están todos los streams activos, desconectar el slot
+            expected = {
+                "/usb_camera/image_raw",
+                "/fisheye/image_raw",
+                "/camera/color/image_raw",
+                "/thermal_camera/image_raw",
+                "/thermal_camera/image_raw",
+                "/qr_detector/debug_image",
+                "/motion_detector/debug_image",
+                "/yolo/dbg_image",
+                "/image",
+            }
+            if expected.issubset(self.active_streams):
+                try:
+                    self.ros_signals.new_image.disconnect(self._check_stream_active)
+                except RuntimeError:
+                    pass  # Ya estaba desconectado
 
     def _handle_quick_action(self, action_name: str) -> None:
         """Ejecuta la acción rápida seleccionada en el panel de estado.
